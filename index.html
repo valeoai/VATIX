@@ -1,0 +1,669 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="VATIX: A Scaling Law Analysis of Video Diffusion Models for driving video generation."
+    />
+    <title>VATIX | Scaling Law Analysis of Video Diffusion Models</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="site-header" id="top">
+      <nav class="nav container" aria-label="Primary">
+        <a class="brand" href="#top">
+          <img src="statics/valeoai_logo.png" alt="valeo.ai" class="brand-logo" />
+        </a>
+        <button class="nav-toggle" aria-expanded="false" aria-controls="nav-links">
+          Menu
+        </button>
+        <ul id="nav-links" class="nav-links">
+          <li><a href="#overview">Overview</a></li>
+          <li><a href="#scaling-laws">Scaling Laws</a></li>
+          <li><a href="#dataset">Dataset</a></li>
+          <li><a href="#prediction-9b">9B Model</a></li>
+          <li><a href="#results">Results</a></li>
+          <li><a href="#resources">Resources</a></li>
+        </ul>
+        <button
+          class="theme-toggle"
+          id="theme-toggle"
+          type="button"
+          role="switch"
+          aria-checked="false"
+          aria-label="Switch to dark mode"
+          title="Switch to dark mode"
+        >
+          <span class="theme-toggle-track" aria-hidden="true">
+            <span class="theme-toggle-thumb"></span>
+          </span>
+        </button>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero section" id="overview">
+        <div class="container hero-layout hero-layout--single">
+          <div class="hero-copy">
+            <p class="eyebrow">valeo.ai research project</p>
+            <h1>How Far Can 5,500 Hours of Driving Take You?</h1>
+            <p class="subtitle">A Scaling Law Analysis of Video Diffusion Models</p>
+            <p class="authors">
+              Victor Besnier, Anh-Quan Cao, Elias Ramzi, Spyros Gidaris, Tuan-Hung Vu,
+              Andrei Bursuc, Eloi Zablocki, Matthieu Cord
+            </p>
+            <div class="affiliation-wrap">
+              <p class="affiliation">valeo.ai - Paris, France</p>
+            </div>
+            <div class="button-row" role="group" aria-label="Project links">
+              <a class="btn" href="#" aria-disabled="true">Paper</a>
+              <a class="btn" href="https://github.com/valeoai/VATIX" target="_blank" rel="noreferrer">Code</a>
+              <a class="btn" href="https://huggingface.co/llvictorll/Vatix/" target="_blank" rel="noreferrer">Models</a>
+              <a class="btn" href="https://huggingface.co/datasets/natix-network-org/natix-multi-camera-driving-dataset" target="_blank" rel="noreferrer">Dataset</a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section-sm hero-teaser-section" aria-label="Driving rollout teaser">
+        <div class="container">
+          <div class="hero-media hero-media-standalone card">
+            <figure class="hero-teaser-figure">
+              <figcaption class="hero-teaser-title">Vatix Generations </figcaption>
+              <div class="hero-video-wrap">
+                <img
+                  class="hero-teaser-gif"
+                  src="statics/comparison_4x2_high_quality.gif"
+                  alt="Top row ground-truth driving videos and bottom row generated driving videos comparison"
+                />
+              </div>
+              <div class="hero-teaser-legend" aria-label="Teaser legend">
+                <span><strong>Row 1:</strong> Ground-truth driving clips</span>
+                <span><strong>Row 2:</strong> Generated driving clips</span>
+              </div>
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <section class="key-strip section-sm" aria-label="Key results">
+        <div class="container key-grid">
+          <article class="key-item"><h3 data-counter="5500">5,500 h</h3><p>Driving video</p></article>
+          <article class="key-item"><h3 data-counter="28">28</h3><p>Countries</p></article>
+          <article class="key-item"><h3 data-counter="200">200+</h3><p>Training runs</p></article>
+          <article class="key-item key-item-wide"><h3 class="nowrap">1.6M&nbsp;to&nbsp;1.1B</h3><p>Parameters used to fit laws</p></article>
+          <article class="key-item emphasis"><h3 data-counter="3.6">3.6%</h3><p>Extrapolation error</p></article>
+        </div>
+      </section>
+
+      <section class="section" id="motivation">
+        <div class="container two-col">
+          <div>
+            <h2>How far can a fixed driving dataset take us?</h2>
+            <p>
+              Video generation for autonomous driving cannot simply follow web-scale recipes similar to LLMs.
+              Driving data is expensive to collect, privacy constrained, and limited in unique coverage.
+              Moreover, diffusion models are different in terms of training dynamics and scaling behavior compared to LLMs.
+              Thus we ask: given a fixed driving dataset, how should we allocate compute to improve video generation?
+            </p>
+            <p>
+              VATIX uses scaling laws to answer where each next unit of compute should go.
+            </p>
+          </div>
+          <div class="card formula-card">
+            <h3>Decision Variables</h3>
+            <p class="small">Paper setup: allocate model scale and exposure under a compute budget.</p>
+            <div class="variable-grid" aria-label="Decision variables">
+              <div class="var-node">
+                <span class="var-symbol">N</span>
+                <span class="var-label">Model size</span>
+              </div>
+              <div class="var-node">
+                <span class="var-symbol">D</span>
+                <span class="var-label">Training exposure</span>
+              </div>
+              <div class="var-node">
+                <span class="var-symbol">C</span>
+                <span class="var-label">Compute budget</span>
+              </div>
+            </div>
+            <p class="outcome">Target metric: \(L_{val}\) (validation diffusion loss)</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="scaling-laws">
+        <div class="container">
+          <h2>Three scaling laws.</h2>
+          <div class="cards-3">
+            <article class="card">
+              <h3>Model scaling</h3>
+              <p>How validation loss changes as parameter count increases.</p>
+            </article>
+            <article class="card">
+              <h3>Training scaling</h3>
+              <p>How validation loss changes as total seen samples increase.</p>
+            </article>
+            <article class="card">
+              <h3>Compute scaling</h3>
+              <p>How to allocate model size and exposure under fixed compute.</p>
+            </article>
+          </div>
+          <div class="equation card">
+            <p class="eq">\[L(x)=L_0 + A x^{-\alpha}\]</p>
+            <p class="eq-note">\(x\): scaling variable | \(L_0\): asymptotic loss | \(A\): initial gap | \(\alpha\): scaling rate</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="dataset">
+        <div class="container">
+          <h2>5,500 hours of real-world driving from Natix dataset</h2>
+          <div class="dataset-grid">
+            <div class="card facts">
+              <p class="facts-badge">Preprocessing setup used in VATIX experiments</p>
+              <ul>
+                <li>Approximately 5,500 hours</li>
+                <li>28 countries across Europe, North America, and Japan</li>
+                <li>Front-facing camera</li>
+                <li>Anonymized faces and license plates</li>
+                <li>Approximately 6.3M distinct 2.5-second clips</li>
+                <li>9 Hz frame rate</li>
+                <li>320 x 416 training resolution</li>
+              </ul>
+            </div>
+            <!-- <div class="card map-placeholder">
+              <p>Geographic coverage map placeholder</p>
+              <p class="small">Replace with paper map asset if available.</p>
+            </div> -->
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="architecture">
+        <div class="container">
+          <h2>Video diffusion transformer trained from scratch</h2>
+          <p class="section-lead">
+            A conditional flow matching learns a continuous transport from noise to video by integrating a learned velocity field.
+          </p>
+          <figure class="card arch-figure">
+            <img
+              src="statics/model_archi.png"
+              alt="VATIX model architecture: input frame/video, Wan 2.1 VAE latent encoding, spatio-temporal transformer, and velocity prediction for generation"
+              class="arch-image"
+            />
+            <figcaption class="small centered">
+              VATIX architecture: VAE latent encoding followed by a spatio-temporal transformer trained with conditional flow matching, with optional conditioning inputs when available.
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="section scaling-section" id="scaling">
+
+        <div class="container">
+            <div class="section-header">
+            <p class="eyebrow">SCALING LAWS</p>
+            <h2>How should we scale?</h2>
+            <p class="section-intro">
+              Validation loss follows consistent power laws in both training exposure
+              and model size. Under limited compute, increasing exposure is the
+              fastest path to lower loss, while larger models remain essential to
+              push the asymptotic floor lower at scale.
+            </p>
+            </div>
+
+            <!-- 01 — Training exposure -->
+            <div class="scaling-block">
+            <div class="scaling-content">
+                <span class="scaling-number">01</span>
+
+                <h3>Training exposure quickly reduces loss</h3>
+
+                <div class="metric">
+                \(\alpha_D \approx 0.74\)
+                </div>
+
+                <p>
+                Training exposure follows a stable power-law regime and yields the
+                fastest loss reduction for a fixed model. Early gains are strong,
+                then progressively diminish as exposure grows.
+                </p>
+
+                <p class="key-message">
+                <strong>Training exposure is the most efficient short-term way to
+                reduce loss.</strong>
+                </p>
+            </div>
+
+            <figure class="card plot-figure">
+                <img
+                src="statics/scaling_training.png"
+                alt="Training exposure scaling law with alpha D approximately 0.74"
+                class="plot-image"
+                />
+            </figure>
+            </div>
+
+
+            <!-- 02 — Model size -->
+            <div class="scaling-block reverse">
+            <div class="scaling-content">
+                <span class="scaling-number">02</span>
+
+                <h3>Model size scales more slowly — but is necessary</h3>
+
+                <div class="metric">
+                \(\alpha_N \approx 0.21\)
+                </div>
+
+                <p>
+                Model size also follows a consistent power law, but improves loss
+                more slowly than exposure. Its key benefit is a lower asymptotic
+                loss \(L_0\), which smaller models cannot match.
+                </p>
+
+                <p class="key-message">
+                <strong>
+                    Training longer makes a model better.
+                    Scaling the model makes its ceiling lower.
+                </strong>
+                </p>
+
+                <p>
+                This makes model scaling essential when the goal is to reach
+                increasingly low loss.
+                </p>
+            </div>
+
+            <figure class="card plot-figure">
+                <img
+                src="statics/scaling_model.png"
+                alt="Model size scaling law with alpha N approximately 0.21"
+                class="plot-image"
+                />
+            </figure>
+            </div>
+
+
+            <!-- 03 — Compute scaling -->
+            <div class="scaling-block compute-block">
+            <div class="scaling-content">
+                <span class="scaling-number">03</span>
+
+                <h3>Compute scaling: scale both</h3>
+
+                <div class="metric">
+                \(\alpha_C \approx 0.154\)
+                </div>
+
+                <p>
+                Compute-optimal scaling balances both axes: prioritize longer
+                training when compute is tight, then increasingly invest in model
+                size as compute and training budgets grow.
+                </p>
+
+                <p class="key-message">
+                <strong>
+                    More compute → larger models + more training exposure
+                </strong>
+                </p>
+
+                <p>
+                The optimal allocation shifts toward larger models as the total
+                compute budget increases, following a predictable scaling law.
+                </p>
+            </div>
+
+            <figure class="card plot-figure">
+                <img
+                src="statics/scaling_compute.png"
+                alt="Compute scaling law showing the optimal balance between model size and training exposure"
+                class="plot-image"
+                />
+            </figure>
+            </div>
+
+
+            <!-- Takeaway -->
+            <div class="scaling-takeaway">
+            <p class="eyebrow">THE TAKEAWAY</p>
+
+            <h3>
+              Scaling laws remain predictable across model size and training exposure.<br />
+              Training exposure delivers faster gains under limited compute.<br />
+              Larger models unlock lower asymptotic loss.
+            </h3>
+            </div>
+
+        </div>
+      </section>
+
+      <section class="section dramatic" id="prediction-9b">
+        <div class="container">
+          <h2>We extrapolate. Then we test the prediction.</h2>
+          <div class="prediction card">
+            <div class="prediction-step">
+              <h3>Before training</h3>
+              <p class="big-number">0.0753</p>
+              <p class="prediction-caption">Predicted 9B validation loss</p>
+            </div>
+            <div class="prediction-action" aria-label="Train action">
+              <span class="prediction-arrow">-></span>
+              <span class="prediction-action-label">Train the 9B model</span>
+            </div>
+            <div class="prediction-step">
+              <h3>After training</h3>
+              <p class="big-number">0.0781</p>
+              <p class="prediction-caption">Observed 9B validation loss</p>
+            </div>
+          </div>
+          <p class="error">3.6% relative error</p>
+          <p class="centered">Extrapolation spans 8x beyond the largest model used for fitting.</p>
+        </div>
+      </section>
+
+      <section class="section" id="video-quality">
+        <div class="container">
+          <h2>Scaling improves the video, not just the loss</h2>
+          <p class="section-lead">Side-by-side synchronized comparison across scales: 19M, 135M, 1.1B, 9B.</p>
+          <div class="video-controls" role="group" aria-label="Comparison controls">
+            <span class="control-label">Scene</span>
+            <div class="scene-buttons" id="scene-buttons">
+              <button type="button" class="scene-btn is-active" data-src="statics/comparison_00005.mp4">Scene 1</button>
+              <button type="button" class="scene-btn" data-src="statics/comparison_00276.mp4">Scene 2</button>
+              <button type="button" class="scene-btn" data-src="statics/comparison_00347.mp4">Scene 3</button>
+            </div>
+            <button type="button" class="btn" id="compare-toggle">Pause</button>
+          </div>
+          <video id="compare-source-video" class="compare-source-video" autoplay muted loop playsinline preload="metadata" src="statics/comparison_00005.mp4"></video>
+          <div class="video-grid comparison-grid" id="comparison-grid">
+            <article class="card video-slot">
+              <h3>19M</h3>
+              <div class="comparison-window">
+                <canvas class="compare-canvas" data-slot="0" aria-label="19M generated video"></canvas>
+              </div>
+            </article>
+            <article class="card video-slot">
+              <h3>135M</h3>
+              <div class="comparison-window">
+                <canvas class="compare-canvas" data-slot="1" aria-label="135M generated video"></canvas>
+              </div>
+            </article>
+            <article class="card video-slot">
+              <h3>1.1B</h3>
+              <div class="comparison-window">
+                <canvas class="compare-canvas" data-slot="2" aria-label="1.1B generated video"></canvas>
+              </div>
+            </article>
+            <article class="card video-slot featured">
+              <h3>9B</h3>
+              <div class="comparison-window">
+                <canvas class="compare-canvas" data-slot="3" aria-label="9B generated video"></canvas>
+              </div>
+            </article>
+          </div>
+          <p class="small centered">Each scene video is split into four synchronized panes from left to right: 19M, 135M, 1.1B, 9B.</p>
+        </div>
+      </section>
+
+      <section class="section" id="results">
+        <div class="container">
+          <h2>Better scaling to better generation quality</h2>
+           <p class="section-intro">
+            The scaling trends observed in validation loss translate into improved video quality,
+            with larger models consistently outperforming smaller ones across all metrics.
+           </p>
+          <div class="table-wrap card">
+            <table>
+              <thead>
+                <tr>
+                  <th>Model</th>
+                  <th>FID-Inception</th>
+                  <th>FID-DINO</th>
+                  <th>FVD-I3D</th>
+                  <th>FVD-VideoMAE</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>Tiny</td><td>26.87</td><td>280.19</td><td>175.99</td><td>198.40</td></tr>
+                <tr><td>Base</td><td>10.66</td><td>132.51</td><td>68.43</td><td>116.94</td></tr>
+                <tr><td>Large</td><td>8.67</td><td>117.76</td><td>48.09</td><td>99.43</td></tr>
+                <tr><td>1B</td><td>5.61</td><td>87.05</td><td>33.94</td><td>89.49</td></tr>
+                <tr class="hi"><td>9B</td><td>4.91</td><td>60.81</td><td>37.16</td><td>75.86</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="nuscenes">
+        <div class="container">
+          <div class="sota-head">
+            <h2>State-of-the-art driving video generation</h2>
+          </div>
+          <p class="section-lead sota-lead">
+            On nuScenes (Vista split), VATIX 9B improves the listed metrics over the compared baselines.
+          </p>
+          <div class="card sota-benchmark">
+            <div class="table-wrap">
+              <table class="sota-table" aria-label="nuScenes Vista split benchmark results from VATIX paper">
+                <thead>
+                  <tr>
+                    <th>Method</th>
+                    <th>FID-Inception ↓</th>
+                    <th>FID-DINO ↓</th>
+                    <th>FVD-I3D ↓</th>
+                    <th>FVD-VideoMAE ↓</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Vista [7]</td>
+                    <td>6.9</td>
+                    <td>—</td>
+                    <td>89.4</td>
+                    <td>—</td>
+                  </tr>
+                  <tr>
+                    <td>GEM [9]</td>
+                    <td>10.5</td>
+                    <td>—</td>
+                    <td>158.5</td>
+                    <td>—</td>
+                  </tr>
+                  <tr class="hi">
+                    <td>VATIX 9B (ours)</td>
+                    <td>2.72</td>
+                    <td>87.12</td>
+                    <td>25.50</td>
+                    <td>32.58</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="small centered">— indicates the metric was not reported for that baseline in the referenced results.</p>
+          </div>
+          <div class="card sota-qualitative">
+            <h3>Rollout illustration</h3>
+            <div class="sota-video-grid" aria-label="Qualitative SxS videos">
+              <figure class="sota-video-item">
+                <video src="statics/sbs_001025_h264.mp4" controls playsinline preload="metadata"></video>
+                <figcaption class="small">Scene A - VATIX | Vista | GT</figcaption>
+              </figure>
+              <figure class="sota-video-item">
+                <video playsinline preload="metadata" controls>
+                  <source src="statics/sbs_001700_h264.mp4" type="video/mp4" />
+                  Your browser cannot decode this video. <a href="statics/sbs_001700_h264.mp4">Download clip</a>.
+                </video>
+                <figcaption class="small">Scene B - VATIX | Vista | GT</figcaption>
+              </figure>
+              <figure class="sota-video-item">
+                <video playsinline preload="metadata" controls>
+                  <source src="statics/sbs_004230_h264.mp4" type="video/mp4" />
+                  Your browser cannot decode this video. <a href="statics/sbs_004230_h264.mp4">Download clip</a>.
+                </video>
+                <figcaption class="small">Scene C - VATIX | Vista | GT</figcaption>
+              </figure>
+              <figure class="sota-video-item">
+                <video playsinline preload="metadata" controls>
+                  <source src="statics/sbs_005310_h264.mp4" type="video/mp4" />
+                  Your browser cannot decode this video. <a href="statics/sbs_005310_h264.mp4">Download clip</a>.
+                </video>
+                <figcaption class="small">Scene D - VATIX | Vista | GT</figcaption>
+              </figure>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="takeaways">
+        <div class="container">
+
+            <div class="section-header">
+            <p class="eyebrow">KEY TAKEAWAYS</p>
+            <h2>What did 5,500 hours teach us?</h2>
+            <p class="section-intro">
+              Video diffusion scaling is predictable in both dimensions, but the
+              gains are asymmetric: exposure improves loss faster, while model
+              scale determines how low the final loss can go.
+            </p>
+            </div>
+
+            <div class="conclusion-grid">
+
+            <article class="card conclusion-card">
+                <p class="conclusion-index">01</p>
+                <h3>Exposure gives fast gains</h3>
+                <p>
+                Validation loss decreases with a stable exposure power law
+                (\(\alpha_D = 0.74\)). Under limited compute, longer training is
+                the most effective lever for improving a fixed model.
+                </p>
+            </article>
+
+            <article class="card conclusion-card">
+                <p class="conclusion-index">02</p>
+                <h3>Scale the model to go lower</h3>
+                <p>
+                Model scaling is slower (\(\alpha_N = 0.21\)), but larger models
+                consistently reach lower asymptotic losses \(L_0\). Scale is thus
+                required for the best long-run loss frontier.
+                </p>
+            </article>
+
+            <article class="card conclusion-card">
+                <p class="conclusion-index">03</p>
+                <h3>Scale both with compute</h3>
+                <p>
+                As compute increase, the optimal strategy shifts from
+                mostly longer training toward scaling both training exposure and
+                model size under a predictable compute law.
+                </p>
+            </article>
+
+            </div>
+
+            <div class="conclusion-metrics card" aria-label="Key scaling results">
+
+            <div class="conclusion-metric">
+                <p class="conclusion-value">0.74</p>
+                <p class="conclusion-label">
+                Training exposure<br />
+                \(\alpha_D\)
+                </p>
+            </div>
+
+            <div class="conclusion-metric">
+                <p class="conclusion-value">0.21</p>
+                <p class="conclusion-label">
+                Model size<br />
+                \(\alpha_N\)
+                </p>
+            </div>
+
+            <div class="conclusion-metric">
+                <p class="conclusion-value">0.154</p>
+                <p class="conclusion-label">
+                Compute scaling<br />
+                \(\alpha_C\)
+                </p>
+            </div>
+
+            <div class="conclusion-metric highlight">
+                <p class="conclusion-value">3.6%</p>
+                <p class="conclusion-label">
+                9B extrapolation<br />
+                relative error
+                </p>
+            </div>
+
+            </div>
+
+        </div>
+        </section>
+
+      <section class="section" id="resources">
+        <div class="container">
+          <h2>Resources</h2>
+          <div class="cards-5">
+            <a class="card resource" href="#" aria-disabled="true"><h3>Paper</h3><p>Read the full paper</p></a>
+            <a class="card resource" href="https://github.com/valeoai/VATIX" target="_blank" rel="noreferrer"><h3>Code</h3><p>GitHub repository</p></a>
+            <a class="card resource" href="https://huggingface.co/llvictorll/Vatix/" target="_blank" rel="noreferrer"><h3>Models</h3><p>Pretrained checkpoints</p></a>
+            <a class="card resource" href="https://huggingface.co/datasets/natix-network-org/natix-multi-camera-driving-dataset" target="_blank" rel="noreferrer"><h3>Dataset</h3><p>NATIX dataset</p></a>
+          </div>
+        </div>
+      </section>
+
+      <section class="section-sm authors-block">
+        <div class="container">
+          <h2>Authors</h2>
+          <p>
+            Victor Besnier, Anh-Quan Cao, Elias Ramzi, Spyros Gidaris, Tuan-Hung Vu,
+            Andrei Bursuc, Eloi Zablocki, Matthieu Cord
+          </p>
+          <p><strong>valeo.ai - Paris, France</strong></p>
+        </div>
+      </section>
+
+      <section class="section-sm citation-block" id="citation">
+        <div class="container">
+          <h2>Citation</h2>
+          <p class="section-intro">If you use VATIX in your research, please cite:</p>
+          <pre class="citation-pre"><code>@inproceedings{
+besnier2026how,
+title={How Far Can 5,500 Hours of Driving Take You? A Scaling Law Analysis of Video Diffusion Models},
+author={Victor Besnier and Anh-Quan Cao and Elias Ramzi and Spyros Gidaris and Tuan-Hung VU and Andrei Bursuc and Eloi Zablocki and Matthieu Cord},
+booktitle={[Archival Track] ECCV 2026 DriveX - 6th Workshop on Foundation Models for Autonomous Driving},
+year={2026},
+url={https://openreview.net/forum?id=V33on0TguP}
+}</code></pre>
+        </div>
+      </section>
+    </main>
+
+    <button class="back-top" id="back-top" aria-label="Back to top">Top</button>
+
+    <script>
+      window.MathJax = {
+        tex: {
+          inlineMath: [['\\(', '\\)']],
+          displayMath: [['\\[', '\\]']]
+        },
+        svg: {
+          fontCache: 'global'
+        }
+      };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+    <script src="script.js"></script>
+  </body>
+</html>
