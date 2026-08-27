@@ -1140,6 +1140,28 @@ body[data-theme="dark"] .prediction-action-label {
   text-align: center;
 }
 
+.visu-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.visu-item {
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 8px 18px rgba(11, 35, 58, 0.04);
+}
+
+.visu-item video {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: #07121d;
+}
+
 body[data-theme="dark"] .sota-video-item figcaption,
 body[data-theme="dark"] .prediction-caption,
 body[data-theme="dark"] .conclusion-label,
@@ -1147,6 +1169,11 @@ body[data-theme="dark"] .small,
 body[data-theme="dark"] .section-intro,
 body[data-theme="dark"] .key-message {
   color: #b8d0e3;
+}
+
+body[data-theme="dark"] .visu-item {
+  background: #182b3d;
+  border-color: #35506e;
 }
 
 .sota-grid {
