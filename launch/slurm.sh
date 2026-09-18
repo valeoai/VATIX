@@ -21,11 +21,11 @@ EXPERIMENT=${EXPERIMENT:-multi_gpu_ddp}
 HYDRA_OVERRIDES=${HYDRA_OVERRIDES:-}
 
 case "${EXPERIMENT}" in
-  base|multi_gpu_ddp|multi_gpu_fsdp)
+  base|multi_gpu_ddp|multi_gpu_fsdp|flagship9b_traj)
     ;;
   *)
     echo "Unsupported experiment: ${EXPERIMENT}" >&2
-    echo "Allowed values: base, multi_gpu_ddp, multi_gpu_fsdp" >&2
+    echo "Allowed values: base, multi_gpu_ddp, multi_gpu_fsdp, flagship9b_traj" >&2
     exit 1
     ;;
 esac

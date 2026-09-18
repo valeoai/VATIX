@@ -204,8 +204,8 @@ class Trainer(object):
         else:
             params = list(net.parameters())
 
-        # Trajectory params (trajectory_embed / trajectory_aux_head) are zero-initialised and get
-        # weak gradients, so they skip weight decay to avoid being held at zero.
+        # Trajectory params (trajectory_embed / trajectory_aux_head / trajectory_aux_norm) are
+        # zero-initialised and get weak gradients, so they get their own lr multiplier and weight decay.
         if bool(getattr(self.args, "use_trajectory_cond", False)) and mode in ("adamw", "adam", "sgd"):
             nets = net if isinstance(net, list) else [net]
             traj_params, base_params = [], []
@@ -213,12 +213,17 @@ class Trainer(object):
                 for name, p in n.named_parameters():
                     (traj_params if "trajectory_" in name else base_params).append(p)
             if traj_params:
-                params = [{"params": traj_params, "weight_decay": 0.0}]
+                traj_lr_mult = float(getattr(self.args, "trajectory_embed_lr_mult", 1.0))
+                traj_wd = float(getattr(self.args, "trajectory_weight_decay", 0.0))
+                traj_group = {"params": traj_params, "weight_decay": traj_wd}
+                if traj_lr_mult != 1.0:
+                    traj_group["lr"] = lr * traj_lr_mult
+                params = [traj_group]
                 if base_params:
                     params.insert(0, {"params": base_params})
                 if getattr(self.args, "is_master", False):
                     print(f"[optim] trajectory param group: {len(traj_params)} tensors at "
-                          f"weight_decay=0; base group: {len(base_params)} tensors")
+                          f"lr x{traj_lr_mult:g}, weight_decay={traj_wd:g}; base group: {len(base_params)} tensors")
 
         # Choose an optimizer type
         if mode == "adamw":

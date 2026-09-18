@@ -1,0 +1,27 @@
+# @package _global_
+
+# 9B trajectory-conditioned fine-tune (recipe of the released 9B_traj checkpoint).
+# Starts from the unconditional 9B: set pretrained_ckpt=<path to the unconditional 9B base>/model_state_dict.pt.
+# Set global_bsize to the number of GPUs (one clip per GPU).
+
+defaults:
+  - multi_gpu_fsdp
+  - _self_
+
+vit_size: "flagship9b"
+data: "mp4_traj"
+data_folder: "./real_videos/Nuscenes_traj_samples"
+
+use_trajectory_cond: true
+trajectory_fuse_mode: "chunk_sum_rms"
+traj_aux_head_norm: true
+trajectory_embed_lr_mult: 3.0
+trajectory_weight_decay: 0.01
+shared_timestep_prob: 0.5
+
+lr: 1.0e-5
+warm_up: 5000
+max_iter: 100000
+global_bsize: 8
+log_iter: 5000
+save_iter: 5000

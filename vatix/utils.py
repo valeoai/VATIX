@@ -187,9 +187,9 @@ class Checkpointer:
         model_keys = {self._clean_wrapper_fqn(k) for k in target_model.state_dict().keys()}
         ckpt_keys = set(full_sd.keys())
 
-        # The training-only trajectory aux head is dropped when the model was built without it.
+        # The training-only trajectory aux head (and its norm) is dropped when the model was built without it.
         aux_head_keys = {
-            k for k in ckpt_keys - model_keys if k.startswith("trajectory_aux_head.")
+            k for k in ckpt_keys - model_keys if k.startswith(("trajectory_aux_head.", "trajectory_aux_norm."))
         }
         if aux_head_keys:
             for k in aux_head_keys:
@@ -226,6 +226,39 @@ class Checkpointer:
                 f"{sorted(missing)} at their zero-init values."
             )
         return iter, global_epoch
+
+    def load_pretrained(self, model: nn.Module, path: str):
+        """Initialize model weights from a checkpoint file (raw, {"model_state_dict"} or EMA {"shadow"})."""
+        target_model = self._state_dict_model(model)
+        broadcast = self._should_broadcast_from_rank0()
+        full_sd = {}
+        if self._is_rank_zero() or not broadcast:  # other ranks receive the weights by broadcast
+            full_sd = torch.load(path, mmap=True, weights_only=True, map_location="cpu")
+            full_sd = full_sd.get("model_state_dict", full_sd.get("shadow", full_sd))
+            full_sd = {self._clean_wrapper_fqn(k).removeprefix("module."): v for k, v in full_sd.items()}
+
+            model_keys = {self._clean_wrapper_fqn(k) for k in target_model.state_dict().keys()}
+            unexpected = set(full_sd) - model_keys
+            missing = model_keys - set(full_sd)
+            # Only trajectory weights may differ: warm-starting a trajectory model from an unconditional one.
+            if not all(k.startswith("trajectory_") for k in missing | unexpected):
+                raise RuntimeError(
+                    f"pretrained_ckpt keys do not match the model: missing={sorted(missing)}, "
+                    f"unexpected={sorted(unexpected)}"
+                )
+            for k in unexpected:
+                full_sd.pop(k)
+            print(f"Loaded pretrained weights from {path}; left at init: {sorted(missing)}, dropped: {sorted(unexpected)}")
+
+        if not broadcast:
+            # In-place copy; set_model_state_dict would first stage a full copy on the GPU (OOM for the 9B).
+            getattr(target_model, "_orig_mod", target_model).load_state_dict(full_sd, strict=False)
+            return
+        set_model_state_dict(
+            model=target_model,
+            model_state_dict=full_sd,
+            options=StateDictOptions(full_state_dict=True, broadcast_from_rank0=broadcast, strict=False),
+        )
 
     def load_optim(self, model: nn.Module, opt: torch.optim.Optimizer):
         # Always load from the latest checkpoint (highest iteration number)

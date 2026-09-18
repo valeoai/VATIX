@@ -25,6 +25,7 @@ debug: false                                                     # If true, init
 resume: true                                                     # Resume from latest checkpoint in `vit_folder/ckpt` when available.
 compile: false                                                   # Enable torch.compile on the transformer model.
 resume_load_optimizer: false                                     # Load optimizer state when resuming from checkpoint.
+pretrained_ckpt: ""                                              # Initialize the transformer from this checkpoint file (weights only, iter 0); ignored when `resume` finds a checkpoint.
 
 # Dataset and dataloader settings
 data: "mp4"                                                      # Dataset mode (`natix`, `natix_feat`, `nuscenes`, `mp4`, ...).
@@ -85,6 +86,11 @@ step: 100                                                        # Default sampl
 scheduler_mode: "cosine"                                         # Sampling time schedule (`cosine`, `square`, `linear`).
 
 # Trajectory conditioning
-use_trajectory_cond: false                                       # Condition generation on an ego-trajectory (per-frame AdaLN injection). Also enables, for training: the auxiliary waypoint head (weight 0.1), SavGol smoothing of the waypoints, 50% horizontal-flip augmentation, and a weight_decay=0 optimizer group for the `trajectory_*` parameters.
+use_trajectory_cond: false                                       # Condition generation on an ego-trajectory (per-frame AdaLN injection). Also enables, for training: the auxiliary waypoint head (weight 0.1), SavGol smoothing of the waypoints, 50% horizontal-flip augmentation, and a separate optimizer group for the `trajectory_*` parameters.
 trajectory_length: 25                                            # Number of (x, y) waypoints per clip; (trajectory_length-1) must be divisible by (input_size[1]-1).
 trajectory_cond_prob: 0.85                                       # Probability of keeping the trajectory during training; dropout enables guidance.
+trajectory_fuse_mode: "chunk_sum"                                # `chunk_sum` adds the trajectory AdaLN chunks; `chunk_sum_rms` scales them by the timestep chunks' RMS (for fine-tuning the 9B).
+traj_aux_head_norm: false                                        # RMSNorm the auxiliary waypoint head's input (adds `trajectory_aux_norm.*` keys).
+trajectory_embed_lr_mult: 1.0                                    # Learning-rate multiplier for the `trajectory_*` parameter group.
+trajectory_weight_decay: 0.0                                     # Weight decay for the `trajectory_*` parameter group.
+shared_timestep_prob: 0.1                                        # Fraction of train steps where all non-context frames share one timestep; the aux waypoint head is supervised on those steps.

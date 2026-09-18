@@ -88,6 +88,12 @@ class FM(Trainer):
 
             if self.args.is_master:
                 print(f"Resumed from checkpoint in {time.time() - start_time:.2f} seconds")
+        elif getattr(self.args, "pretrained_ckpt", ""):
+            # Weights only: iter stays 0, so warmup and schedule restart.
+            self.checkpointer.load_pretrained(self.vit, self.args.pretrained_ckpt)
+            if self.args.use_ema:
+                self.ema = None  # free the random-init shadow, then re-seed it from the loaded weights
+                self.ema = EMA(self._ema_model(), decay=self.args.ema_decay)
         
         self.ae = self.get_network(self.args.vq_type)  # Load VQGAN 
 
@@ -246,6 +252,8 @@ class FM(Trainer):
                 use_trajectory_cond=getattr(self.args, "use_trajectory_cond", False),
                 trajectory_length=getattr(self.args, "trajectory_length", 25),
                 use_trajectory_aux_head=getattr(self.args, "use_trajectory_cond", False),
+                trajectory_fuse_mode=getattr(self.args, "trajectory_fuse_mode", "chunk_sum"),
+                traj_aux_head_norm=getattr(self.args, "traj_aux_head_norm", False),
             )
 
             # If vit_size starts with 'flagship', instantiate directly on device to avoid CPU RAM spike
@@ -364,7 +372,7 @@ class FM(Trainer):
                     limit_all_gathers=self.args.fsdp_limit_all_gathers,
                     cpu_offload=CPUOffload(offload_params=self.args.fsdp_cpu_offload),
                     device_id=self.args.device,
-                    sync_module_states=False,
+                    sync_module_states=True,
                 )
             else:
                 model = DDP(model, device_ids=[self.args.device])
@@ -430,8 +438,8 @@ class FM(Trainer):
             trajectory_keep_mask = self._sample_trajectory_keep_mask(B)
 
             context = [random.randint(0, 1) for _ in range(B)] # randomly drop the context (first frame)
-            # Shared noise level on a TRAJ_AUX_WEIGHT fraction of steps (aux head steps).
-            used_shared_timestep = use_traj_aux_head and torch.rand(1).item() < TRAJ_AUX_WEIGHT
+            # Shared noise level on a shared_timestep_prob fraction of steps; the aux head is supervised on those.
+            used_shared_timestep = use_traj_aux_head and torch.rand(1).item() < getattr(self.args, "shared_timestep_prob", 0.1)
             z_t, e, timestep = self.flow_noising(x, context=context, mu=self.args.mu, sigma=self.args.sigma,
                                                  shared_timestep=used_shared_timestep)
 

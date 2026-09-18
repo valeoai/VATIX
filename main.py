@@ -153,6 +153,12 @@ def run(args):
         torch.backends.cudnn.enabled = False
         torch.backends.cudnn.deterministic = True
 
+    # Fail fast on every rank, before any collective, on settings that would otherwise be silently ignored.
+    if (args.trajectory_fuse_mode != "chunk_sum" or args.traj_aux_head_norm) and not args.use_trajectory_cond:
+        raise ValueError("trajectory_fuse_mode/traj_aux_head_norm require use_trajectory_cond=true")
+    if args.pretrained_ckpt and not os.path.isfile(args.pretrained_ckpt):
+        raise FileNotFoundError(f"pretrained_ckpt not found: {args.pretrained_ckpt}")
+
     env_world_size = int(os.environ.get("WORLD_SIZE", os.environ.get("SLURM_NTASKS", "1")))
     local_world_size = torch.cuda.device_count()
 
