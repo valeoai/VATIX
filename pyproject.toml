@@ -62,6 +62,7 @@ py-modules = ["main"]
   "conf/experiment/base.yaml",
   "conf/experiment/multi_gpu_ddp.yaml",
   "conf/experiment/multi_gpu_fsdp.yaml",
+  "conf/experiment/flagship9b_traj.yaml",
 ]
 
 [tool.setuptools.packages.find]

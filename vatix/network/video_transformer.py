@@ -94,7 +94,9 @@ class Transformer(nn.Module):
                  depth=12, heads=16, mlp_dim=3072, dropout=0.,
                  register=1, proj=1, is_causal=False,
                  use_trajectory_cond=False, trajectory_length=25,
-                 use_trajectory_aux_head=False):
+                 use_trajectory_aux_head=False,
+                 trajectory_fuse_mode="chunk_sum",
+                 traj_aux_head_norm=False):
         super().__init__()
 
         self.input_size = input_size                                    # Number of tokens as input
@@ -105,6 +107,7 @@ class Transformer(nn.Module):
         self.is_causal = is_causal                                      # use temporal causal mask in the transformer
         self.use_trajectory_cond = use_trajectory_cond                  # condition generation on an ego-trajectory
         self.trajectory_length = trajectory_length                      # number of (x, y) waypoints per clip
+        self.trajectory_fuse_mode = trajectory_fuse_mode                # "chunk_sum" or "chunk_sum_rms"
 
         # Separate temporal and spatial (learned) positional embeddings
         self.temporal_pos = nn.Embedding(self.t, hidden_dim)
@@ -128,6 +131,8 @@ class Transformer(nn.Module):
 
         self.trajectory_aux_head = None
         if self.use_trajectory_cond:
+            if trajectory_fuse_mode not in ("chunk_sum", "chunk_sum_rms"):
+                raise ValueError(f"trajectory_fuse_mode must be 'chunk_sum' or 'chunk_sum_rms', got {trajectory_fuse_mode!r}")
             # Six AdaLN modulation chunks per latent frame, summed onto the timestep chunks.
             self.trajectory_embed = PerFrameTrajectoryEmbedder(
                 trajectory_length=trajectory_length,
@@ -145,6 +150,10 @@ class Transformer(nn.Module):
                     nn.SiLU(),
                     nn.Linear(hidden_dim, self.trajectory_embed.group_size * 2),  # (x, y) per waypoint
                 )
+                # Own attribute, not element 0 of the Sequential: inserting there would
+                # renumber trajectory_aux_head.0/.2 and break old checkpoints.
+                if traj_aux_head_norm:
+                    self.trajectory_aux_norm = RMSNorm(dim=hidden_dim, linear=True, bias=True)
 
         self.initialize_weights()  # Init weight
 
@@ -179,6 +188,10 @@ class Transformer(nn.Module):
             # unconditional checkpoint is safe.
             nn.init.constant_(self.trajectory_embed.mlp[-1].weight, 0)
             nn.init.constant_(self.trajectory_embed.mlp[-1].bias, 0)
+        if hasattr(self, "trajectory_aux_norm"):
+            # Opt-in only: zeroing the aux head's output changes its iter-0 prediction.
+            nn.init.constant_(self.trajectory_aux_head[-1].weight, 0)
+            nn.init.constant_(self.trajectory_aux_head[-1].bias, 0)
 
 
     def forward(self, x, ada_cond, return_feat=False, trajectory_cond=None, trajectory_keep_mask=None):
@@ -221,7 +234,18 @@ class Transformer(nn.Module):
             if trajectory_keep_mask is not None:
                 # Dropped samples add zero: the unconditional pathway used for classifier-free guidance.
                 traj_emb = traj_emb * trajectory_keep_mask.to(traj_emb).view(b, 1, 1)
-            t_emb = [time_chunk + traj_chunk for time_chunk, traj_chunk in zip(t_emb, traj_emb.chunk(6, dim=-1))]
+            traj_chunks = traj_emb.chunk(6, dim=-1)
+            if self.trajectory_fuse_mode == "chunk_sum_rms":
+                # Scale each traj chunk by the detached RMS of its timestep chunk (fine-tuning only).
+                fused = []
+                for time_chunk, traj_chunk in zip(t_emb, traj_chunks):
+                    scale = time_chunk.float().pow(2).mean(dim=-1, keepdim=True).sqrt().detach()
+                    # Cap the traj/time RMS ratio at 1; the clamp also avoids a NaN grad on zero chunks.
+                    scale = scale / traj_chunk.float().pow(2).mean(dim=-1, keepdim=True).clamp(min=1.0).sqrt()
+                    fused.append((time_chunk.float() + traj_chunk.float() * scale).to(time_chunk.dtype))
+                t_emb = fused
+            else:
+                t_emb = [time_chunk + traj_chunk for time_chunk, traj_chunk in zip(t_emb, traj_chunks)]
         elif trajectory_cond is not None or trajectory_keep_mask is not None:
             raise ValueError("trajectory_cond/trajectory_keep_mask given but trajectory conditioning is disabled for this model")
 
@@ -248,6 +272,8 @@ class Transformer(nn.Module):
             if self.trajectory_aux_head is not None:
                 # Drop the register, mean-pool over space, predict the non-origin frames' waypoints.
                 feat = feat[:, self.register:].reshape(b, t, S, -1).mean(dim=2).float()  # (B, T, D)
+                if hasattr(self, "trajectory_aux_norm"):
+                    feat = self.trajectory_aux_norm(feat)
                 traj_aux_pred = self.trajectory_aux_head(feat[:, 1:])                    # (B, T-1, G*2)
             return x, traj_aux_pred
 
