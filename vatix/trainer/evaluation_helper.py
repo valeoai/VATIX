@@ -5,6 +5,8 @@ import imageio.v2 as imageio
 from einops import rearrange
 
 import torch
+from torch.utils.data import ConcatDataset, DataLoader
+from torch.utils.data.distributed import DistributedSampler
 
 from vatix.dataset.dataloader import get_data
 from vatix.metrics.inception_metrics import MultiInceptionMetrics
@@ -25,7 +27,7 @@ class EvaluationHelper:
         self.generation_helper = generation_helper
 
     @torch.no_grad()
-    def compute_score(self, num_video=1_000, num_step=50, tot_frames=16, save_exemple=False, compute_pr=False, use_precomputed_feat="", save_sample=False):
+    def compute_score(self, num_video=1_000, num_step=50, tot_frames=16, save_exemple=False, compute_pr=False, use_precomputed_feat="", save_sample=False, cfg_w=1.0):
         """Compute video/image/pixel metrics on generated validation rollouts.
 
         Args:
@@ -36,6 +38,9 @@ class EvaluationHelper:
             compute_pr (bool): If True, enable manifold-based precision/recall metrics.
             use_precomputed_feat (str): Optional path/key to reuse precomputed features.
             save_sample (bool): If True, save one side-by-side generated/real sample video.
+            cfg_w (float): Classifier-free guidance weight; the unconditional pass drops the clean
+                context frame (and the trajectory, given with ``data=mp4_traj`` on a
+                trajectory-conditioned model). <= 1 disables guidance.
 
         Returns:
             dict[str, float]: Rounded metric values aggregated from all metric modules.
@@ -65,8 +70,13 @@ class EvaluationHelper:
 
         pixel_metrics = PixelMetrics(device=self.fm.args.device)
 
-        eval_data = get_data(
-            data=self.fm.args.data.split("_")[0],
+        # Pixels are needed: latent datasets (e.g. natix_feat) fall back to their raw-video variant,
+        # while mp4_traj is kept so that the clips come with their trajectories.
+        data = self.fm.args.data if self.fm.args.data == "mp4_traj" else self.fm.args.data.split("_")[0]
+        use_traj = bool(getattr(self.fm.args, "use_trajectory_cond", False))
+        split = getattr(self.fm.args, "eval_split", "val")
+        loaders = get_data(
+            data=data,
             img_size=self.fm.args.img_size,
             n_frames=tot_frames,
             seed=self.fm.args.seed,
@@ -74,8 +84,29 @@ class EvaluationHelper:
             cameras=self.fm.args.cameras,
             bsize=self.fm.args.bsize,
             num_workers=max(2, self.fm.args.bsize),
-            is_multi_gpus=self.fm.args.is_multi_gpus
-        )[0]
+            is_multi_gpus=self.fm.args.is_multi_gpus,
+            trajectory_length=getattr(self.fm.args, "trajectory_length", 25),
+            smooth_trajectory=use_traj,  # same SavGol smoothing as trajectory-conditioned training
+        )
+        if split == "all":
+            # Every clip of eval_folder (both splits), in a seeded random order.
+            dataset = ConcatDataset([loaders[0].dataset, loaders[1].dataset])
+            seed = max(int(self.fm.args.seed), 0)
+            sampler = DistributedSampler(dataset, shuffle=True, seed=seed) if self.fm.args.is_multi_gpus else None
+            eval_data = DataLoader(dataset, batch_size=self.fm.args.bsize, shuffle=sampler is None, sampler=sampler,
+                                   generator=torch.Generator().manual_seed(seed),
+                                   num_workers=max(2, self.fm.args.bsize), drop_last=True)
+        elif split in ("train", "val"):
+            eval_data = loaders[0] if split == "train" else loaders[1]
+        else:
+            raise ValueError(f"eval_split must be 'val', 'train' or 'all', got {split!r}")
+        if self.fm.args.is_master:
+            traj = "GT trajectory" if use_traj and data == "mp4_traj" else "no trajectory"
+            guidance = (f"cfg {cfg_w:g} (unconditional pass drops the context frame and the trajectory)"
+                        if cfg_w > 1 else "no guidance")
+            mode = f"{traj}, {guidance}"
+            print(f"Metrics evaluation on {self.fm.args.eval_folder} ({data}, split {split}, "
+                  f"{len(eval_data.dataset)} clips): {mode}")
 
         # Per-rank target after accounting for distributed setup and camera packing.
         total_videos = num_video // (self.fm.args.nb_gpus * self.fm.args.nb_cam)
@@ -86,6 +117,7 @@ class EvaluationHelper:
                 real_sample = batch["images"].to(self.fm.args.device)
                 b, c, t, h, w_total = real_sample.size()
                 w = w_total // self.fm.args.nb_cam
+                trajectory = batch["trajectory"].to(self.fm.args.device) if use_traj and "trajectory" in batch else None
 
                 gen_sample = self.generation_helper.generate_samples(
                     x_ctx=real_sample,
@@ -95,6 +127,8 @@ class EvaluationHelper:
                     alpha=0.0,
                     scheduler_mode=self.fm.args.scheduler_mode,
                     rollout_steps=rollout_steps,
+                    trajectory=trajectory,
+                    cfg_w=cfg_w,
                 )
 
                 # Keep only the requested horizon and flatten camera dimension for metrics.
@@ -105,13 +139,16 @@ class EvaluationHelper:
                 real_sample = rearrange(real_sample, "b c t h (w cam) -> (b cam) t c h w", b=b, c=c, t=tot_frames, h=h, w=w, cam=self.fm.args.nb_cam)
                 real_sample = torch.clamp(((real_sample.float() / 255.0) * 2) - 1, -1, 1).contiguous().float()
 
-                video_metrics.update(gen_sample, image_type="fake")
-                video_metrics.update(real_sample, image_type="real")
+                # Drop the context frame: it is the VAE reconstruction of the real frame, not generated.
+                gen_eval, real_eval = gen_sample[:, 1:].contiguous(), real_sample[:, 1:].contiguous()
 
-                images_metrics.update(gen_sample, image_type="fake")
-                images_metrics.update(real_sample, image_type="real")
+                video_metrics.update(gen_eval, image_type="fake")
+                video_metrics.update(real_eval, image_type="real")
 
-                pixel_metrics.update(gen_sample, real_sample)
+                images_metrics.update(gen_eval, image_type="fake")
+                images_metrics.update(real_eval, image_type="real")
+
+                pixel_metrics.update(gen_eval, real_eval)
 
                 if save_sample and i == 0 and self.fm.args.is_master:
                     video = torch.cat([gen_sample[0], real_sample[0]], dim=-1)
@@ -142,7 +179,7 @@ class EvaluationHelper:
                     file.write(str(metrics))
 
         # Drop references before empty_cache to release GPU tensors promptly.
-        batch = real_sample = gen_sample = video = None
+        batch = real_sample = gen_sample = gen_eval = real_eval = video = None
         video_m = images_m = pixel_m = None
         eval_data = video_metrics = images_metrics = pixel_metrics = None
 
@@ -152,7 +189,7 @@ class EvaluationHelper:
         return metrics
 
     @torch.no_grad()
-    def generate_eval_videos(self, num_video=500, num_step=50, tot_frames=25, output_dir="./saved_video/eval_videos"):
+    def generate_eval_videos(self, num_video=500, num_step=50, tot_frames=25, output_dir="./saved_video/eval_videos", cfg_w=1.0):
         """Generate validation videos and save them to disk without metrics.
 
         Args:
@@ -160,6 +197,8 @@ class EvaluationHelper:
             num_step (int): Number of denoising/sampling steps per rollout.
             tot_frames (int): Number of frames produced per video.
             output_dir (str): Destination directory for generated ``.mp4`` files.
+            cfg_w (float): Classifier-free guidance weight; the unconditional pass drops the clean
+                context frame. <= 1 disables guidance.
 
         Returns:
             dict[str, int | str]: Number of saved videos and output directory path.
@@ -205,11 +244,12 @@ class EvaluationHelper:
                 gen_sample = self.generation_helper.generate_samples(
                     x_ctx=real_sample,
                     nb_video=b,
-                    latent_context=2,
+                    latent_context=1,
                     num_steps=num_step,
                     alpha=0.0,
                     scheduler_mode=self.fm.args.scheduler_mode,
                     rollout_steps=rollout_steps,
+                    cfg_w=cfg_w,
                 )
 
                 gen_sample = gen_sample[:, :, :tot_frames, :, :]

@@ -510,11 +510,11 @@ class FM(Trainer):
 
 
                         with self.ema_scope():
-                            samples = self.generation_helper.generate_samples(num_steps=self.args.step, x_ctx=vid_x[:1], latent_context=1, rollout_steps=1, alpha=0.)
+                            samples = self.generation_helper.generate_samples(num_steps=self.args.step, x_ctx=vid_x[:1], latent_context=1, rollout_steps=1, alpha=0., cfg_w=self.args.cfg_w)
                             if self.args.is_master:
                                 self.log_add_vid("Video/Short", samples.cpu(), self.args.iter)
-                            
-                            samples = self.generation_helper.generate_samples(num_steps=self.args.step, x_ctx=vid_x[:1], latent_context=2, rollout_steps=3, alpha=0.)
+
+                            samples = self.generation_helper.generate_samples(num_steps=self.args.step, x_ctx=vid_x[:1], latent_context=2, rollout_steps=3, alpha=0., cfg_w=self.args.cfg_w)
                             if self.args.is_master:
                                 self.log_add_vid("Video/Long", samples.cpu(), self.args.iter)
 
@@ -773,7 +773,7 @@ class FM(Trainer):
 
             # Compute FID/FVD/SSIM/PSNR
             if metrics_eval > 0 and e % metrics_eval == metrics_eval - 1 and self.args.eval_folder!= "":
-                m = self.evaluation_helper.compute_score(num_video=self.args.gen_eval_num_video, tot_frames=self.args.gen_eval_tot_frames, num_step=self.args.gen_eval_num_step)
+                m = self.evaluation_helper.compute_score(num_video=self.args.eval_num_video, tot_frames=self.args.eval_tot_frames, num_step=self.args.step, cfg_w=self.args.cfg_w)
                 if self.args.is_master:
                     self.log_add_scalar('Metrics/FID', m["FID"], self.args.iter)
                     self.log_add_scalar('Metrics/FVD', m["FVD"], self.args.iter)

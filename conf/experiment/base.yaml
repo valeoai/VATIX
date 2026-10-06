@@ -18,10 +18,7 @@ gen_eval_out_dir: ""                                             # Output direct
 mode: "img-to-vid"                                               # Task mode selector (currently image-to-video flow matching trainer).
 test_only: false                                                 # If true, skip fitting and run evaluation/inference paths only.
 gen_eval_video_only: false                                       # If true, only export evaluation videos (no training loop).
-gen_eval_num_video: 500                                          # Number of videos to generate in eval-video-only mode.
-gen_eval_tot_frames: 25                                          # Number of frames per generated evaluation video.
-gen_eval_num_step: 50                                            # Sampler denoising/integration steps for eval-video-only generation.
-debug: false                                                     # If true, initialize pipeline but stop before training/eval loops.
+debug: false                                                   # If true, initialize pipeline but stop before training/eval loops.
 resume: true                                                     # Resume from latest checkpoint in `vit_folder/ckpt` when available.
 compile: false                                                   # Enable torch.compile on the transformer model.
 resume_load_optimizer: false                                     # Load optimizer state when resuming from checkpoint.
@@ -68,6 +65,9 @@ sigma: 1.4                                                       # Std of logist
 # Evaluation, logging, and checkpoint cadence
 eval_max_iter: -1                                                # Validation loop cap per epoch (-1 means full validation set).
 metrics_eval: 5                                                  # Run expensive metric evaluation every N epochs (0 disables).
+eval_num_video: 500                                              # Videos generated on `eval_folder`, for the FID/FVD metrics and for the eval-video export.
+eval_tot_frames: 25                                              # Frames per generated video, for the FID/FVD metrics and for the eval-video export.
+eval_split: "val"                                                # Clips of `eval_folder` used by the FID/FVD metrics: `val` (held-out split), `train`, or `all` (every clip, seeded shuffle).
 log_iter: 10000                                                  # Interval (iterations) for logging reconstructions/samples.
 save_iter: 10000                                                 # Interval (iterations) for checkpoint saves.
 save_model: true                                                 # Master switch for checkpoint saving.
@@ -81,8 +81,9 @@ fsdp_cpu_offload: false                                          # Offload FSDP 
 fsdp_activation_checkpointing: false                             # Apply activation checkpointing to transformer blocks under FSDP.
 
 # Sampling and generation
-step: 100                                                        # Default sampling steps for generation helper/evaluation calls.
+step: 50                                                        # Default sampling steps for generation helper/evaluation calls.
 scheduler_mode: "cosine"                                         # Sampling time schedule (`cosine`, `square`, `linear`).
+cfg_w: 3.0                                                       # Classifier-free guidance weight of the metrics, eval videos and logged samples: the unconditional pass drops the context frame (and the trajectory, if any); <= 1 disables.
 
 # Trajectory conditioning
 use_trajectory_cond: false                                       # Condition generation on an ego-trajectory (per-frame AdaLN injection). Also enables, for training: the auxiliary waypoint head (weight 0.1), SavGol smoothing of the waypoints, 50% horizontal-flip augmentation, and a weight_decay=0 optimizer group for the `trajectory_*` parameters.
